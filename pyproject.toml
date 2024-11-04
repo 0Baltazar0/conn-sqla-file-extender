@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "conn-sqla-file-extender"
+version = "0.1.0"
+description = "An AST and python code compilation based SQLAlchemy code extender. It generates file related properties for your schema classes."
+authors = ["Boldizsar Pal <boldizsarpal@invenshure.com>"]
+license = "Apache"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+SQLAlchemy = "^2.0.36"
+pyyaml = "^6.0.2"
+
+[tool.poetry.group.dev.dependencies]
+mypy = "^1.13.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+
+[tool.mypy]
+files="./src,./tests"
