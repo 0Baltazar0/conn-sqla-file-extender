@@ -6,7 +6,7 @@ from pathlib import Path
 from sqlalchemy import inspect
 from sqlalchemy.orm import class_mapper
 import yaml
-from logger import logger
+from logger import LOGGER
 
 
 def find_py_files() -> list[str]:
@@ -29,15 +29,15 @@ if __name__ == "__main__":
     for file in paths:
         spec = importlib.util.spec_from_file_location(file, file)
         if not spec or not spec.loader:
-            logger.warning("Skipping file, module is not loadable %s", file)
+            LOGGER.warning("Skipping file, module is not loadable %s", file)
             continue
         else:
-            logger.info("Working on path %s", file)
+            LOGGER.info("Working on path %s", file)
 
         module = importlib.util.module_from_spec(spec)
-        logger.debug("Path loaded: %s", file)
+        LOGGER.debug("Path loaded: %s", file)
         spec.loader.exec_module(module)
-        logger.debug("Path executed: %s", file)
+        LOGGER.debug("Path executed: %s", file)
 
         attributes = dir(module)
         for attribute_name in attributes:
@@ -46,7 +46,7 @@ if __name__ == "__main__":
                 inspect(attribute)
                 class_mapper(attribute)
             except Exception as e:
-                logger.debug(
+                LOGGER.debug(
                     "Attribute rejected:%s, of error: %s", attribute_name, str(e)
                 )
                 continue
