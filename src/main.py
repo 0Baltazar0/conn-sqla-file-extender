@@ -9,7 +9,7 @@ from executor import (
     Executor,
 )
 from logger import LOGGER
-from runtime import AbortException, Runtime
+from runtime import AbortException, NoActionRequired, Runtime
 from settings import SETTINGS
 
 
@@ -61,9 +61,11 @@ if __name__ == "__main__":
                 while True:
                     try:
                         Runtime(file, history_path, attribute_name)
+                    except NoActionRequired:
+                        break
                     except ACTION_TYPE_ERRORS as action:
                         Executor.handle_action(action)
-                    except AbortException as e:
+                    except AbortException:
                         continue
                     except ApplyHistoryAction as aha:
                         Executor.handle_action(aha)

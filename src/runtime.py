@@ -22,6 +22,10 @@ class StartupException(Exception):
     pass
 
 
+class NoActionRequired(Exception):
+    pass
+
+
 class UnexpectedCodeSegment(Exception):
     def __init__(self, segment: str, *args: object) -> None:
         self.segment = segment
@@ -63,10 +67,18 @@ class Runtime:
         self.file_name = file_name
         self.history_path = history_path
         self.class_name = class_name
+        self.setup()
+        self.execute()
+
+    def setup(self):
+        self.load_history()
+        self.load_module()
+        self.find_keys()
+        self.find_new_keys()
 
     def load_history(self) -> None:
         with open(self.history_path) as in_file:
-            self.history = load(in_file, Loader).get(self.class_name, {})
+            self.history = (load(in_file, Loader) or {}).get(self.class_name, {})
 
     def load_module(self) -> None:
         self.spec = importlib.util.spec_from_file_location(
@@ -441,4 +453,6 @@ class Runtime:
     def execute(self) -> None:
         self.has_new_keys()
         self.has_missing_keys()
+        if not self.history:
+            raise NoActionRequired()
         raise ApplyHistoryAction(self.file_name, self.class_name, self.history)
