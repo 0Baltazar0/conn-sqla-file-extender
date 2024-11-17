@@ -1,18 +1,31 @@
 import importlib.util
 from importlib.machinery import ModuleSpec
 from types import ModuleType
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 from sqlalchemy import inspect
 from yaml import Loader, load
 
-from executor import RenameAction
+from executor import (
+    ApplyHistoryAction,
+    NewKeyAction,
+    ReAddHistoryAction,
+    RemoveHistoryCleanAction,
+    RemoveHistoryKeyAsIsAction,
+    RenameAction,
+)
 from types_source import FileFields
 from utils.io import must_valid_from_list, must_valid_input
 
 
 class StartupException(Exception):
     pass
+
+
+class UnexpectedCodeSegment(Exception):
+    def __init__(self, segment: str, *args: object) -> None:
+        self.segment = segment
+        super().__init__(*args)
 
 
 class AbortException(Exception):
@@ -53,7 +66,7 @@ class Runtime:
 
     def load_history(self) -> None:
         with open(self.history_path) as in_file:
-            self.history_path = load(in_file, Loader)
+            self.history = load(in_file, Loader).get(self.class_name, {})
 
     def load_module(self) -> None:
         self.spec = importlib.util.spec_from_file_location(
@@ -323,6 +336,7 @@ class Runtime:
             new_key,
             self.file_name,
             self.class_name,
+            self.history_path,
         )
 
     def resolve_rename(self, key_name: str) -> None:
@@ -345,13 +359,86 @@ class Runtime:
             key_name, rename_source_name, self.history[rename_source_name]
         )
 
-    def resolve_new_key(self, key_name: str) -> None:
+    def resolve_add_new_key(self, new_key_name: str) -> None:
+        is_unhandled = (
+            must_valid_input(f"Do you want to keep '{new_key_name}' unhandled?").lower()
+            == "y"
+        )
+        if is_unhandled:
+            raise NewKeyAction(
+                new_key_name,
+                {"unhandled": True},
+                self.file_name,
+                self.class_name,
+                self.history_path,
+            )
+
+        new_key: FileFields = {}
+
+        new_key.update(self.resolve_new_mime(new_key_name))
+        new_key.update(self.resolve_new_file_name(new_key_name))
+
+        raise NewKeyAction(
+            new_key_name,
+            new_key,
+            self.file_name,
+            self.class_name,
+            self.history_path,
+        )
+
+    def resolve_new_key(self, new_key_name: str) -> None:
         is_rename = (
-            must_valid_input(f"New key found '{key_name}'. Is this a rename").lower()
+            must_valid_input(
+                f"New key found '{new_key_name}'. Is this a rename"
+            ).lower()
             == "y"
         )
         if is_rename:
-            self.resolve_rename(key_name)
+            self.resolve_rename(new_key_name)
+        else:
+            self.resolve_add_new_key(new_key_name)
 
-    def execute(self) -> bool:
-        return True
+    def has_new_keys(self) -> Literal[False]:
+        new_key_name = next((k for k in self.file_keys if k not in self.history), None)
+        if new_key_name:
+            self.resolve_new_key(new_key_name)
+            raise UnexpectedCodeSegment("new-key-no-reaction")
+        return False
+
+    def resolve_missing_key(self, old_key_name: str, old_key: FileFields) -> None:
+        un_handle = must_valid_input(
+            f"A previous key '{old_key_name}' is missing from the class.\nDo you want to reinstate it <readd>,\nPurge it <clean>, Remove it without any action <as_is>?",
+            ["re_add", "clean", "as_is"],
+        )
+        if un_handle == "as_is":
+            raise RemoveHistoryKeyAsIsAction(
+                self.file_name, old_key_name, self.class_name, self.history_path
+            )
+        if un_handle == "clean":
+            raise RemoveHistoryCleanAction(
+                self.file_name,
+                old_key_name,
+                old_key,
+                self.class_name,
+                self.history_path,
+            )
+        if un_handle == "re_add":
+            raise ReAddHistoryAction(
+                self.file_name,
+                old_key_name,
+                old_key,
+                self.class_name,
+                self.history_path,
+            )
+        raise UnexpectedCodeSegment("resolve-missing-key-no-solution")
+
+    def has_missing_keys(self) -> Literal[False]:
+        missing_key = next((k for k in self.history if k not in self.file_keys), None)
+        if missing_key:
+            raise UnexpectedCodeSegment("missing-key-no-reaction")
+        return False
+
+    def execute(self) -> None:
+        self.has_new_keys()
+        self.has_missing_keys()
+        raise ApplyHistoryAction(self.file_name, self.class_name, self.history)

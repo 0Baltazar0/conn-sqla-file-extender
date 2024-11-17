@@ -33,6 +33,7 @@ class Settings:
             if os.environ.get("purge_on_unhandled_starlette") is not None
             else self.purge_on_unhandled
         )
+        self.history_path = os.environ.get("history_path", None)
 
 
 SETTINGS = Settings()
