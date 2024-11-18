@@ -52,7 +52,7 @@ def {werkzeug_get_name(key_name)}(self,file:werkzeug.FileStorage)->None:
     mime_type = file.mimetype
     file_name = file.filename
     data = file.read()
-    self.{key} = data
+    self.{key_name} = data
     {('self.'+mime_key+' = mime_type') if mime_key else ''}
     {('self.'+file_name+' = file_name') if file_name else ''}
     

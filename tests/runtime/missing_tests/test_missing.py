@@ -45,6 +45,7 @@ class TestMissing(unittest.TestCase):
                         "old_key": {"unhandled": True},
                     },
                 )
+        os.remove(history_temp_file.name)
 
     def test_missing_re_add(self) -> None:
         with NamedTemporaryFile("w+", delete=False) as history_temp_file:
@@ -65,6 +66,7 @@ class TestMissing(unittest.TestCase):
                         "old_key": {"unhandled": True},
                     },
                 )
+        os.remove(history_temp_file.name)
 
     def test_missing_as_is(self) -> None:
         with NamedTemporaryFile("w+", delete=False) as history_temp_file:
@@ -79,3 +81,4 @@ class TestMissing(unittest.TestCase):
                 exception = NKA.exception
 
                 self.assertEqual(exception.old_key_name, "old_key")
+        os.remove(history_temp_file.name)

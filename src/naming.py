@@ -2,7 +2,7 @@ from types_source import FileFields
 
 
 def get_static_mime_key(key_name: str) -> str:
-    return key_name + "static_mime_type"
+    return key_name + "_static_mime_type"
 
 
 def get_column_mime_key(key_name: str) -> str:
@@ -10,7 +10,7 @@ def get_column_mime_key(key_name: str) -> str:
 
 
 def get_static_file_name_key(key_name: str) -> str:
-    return key_name + "static_file_name"
+    return key_name + "_static_file_name"
 
 
 def get_column_file_name_key(key_name: str) -> str:

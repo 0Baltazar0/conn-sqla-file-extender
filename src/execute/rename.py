@@ -35,7 +35,7 @@ from utils.ast_tools import (
     turn_property_to_attribute,
 )
 
-from ast_comments import dump, parse
+from ast_comments import unparse, parse
 
 
 def rename_mime_fields(
@@ -344,7 +344,7 @@ def rename(
         )
 
     try:
-        textified = dump(module)
+        textified = unparse(module)
         with open(target_file, "w") as out_file:
             out_file.write(textified)
     except Exception as e:

@@ -1,5 +1,5 @@
 from typing import TypeAlias
-from yaml import dump, parse
+from yaml import Loader, dump, load
 from execute.apply_history import apply_history
 from execute.purge import purge
 from execute.rename import rename
@@ -181,8 +181,9 @@ class Executor:
                 raise e
 
         with open(error.history_path) as history_in:
-            history = parse(history_in)
+            history = load(history_in, Loader)
             if error.class_name not in history:
+                print(history)
                 history[error.class_name] = {}
         if isinstance(error, RenameAction):
             try:
@@ -198,6 +199,7 @@ class Executor:
                     history[error.class_name].pop(error.old_key_name)
                     history[error.class_name][error.new_key_name] = error.new_key
                     dump(history, history_out)
+                return
             except Exception as e:
                 LOGGER.exception("Renaming Failed, stopping,%s" % e)
                 raise e
@@ -209,6 +211,7 @@ class Executor:
                 with open(error.history_path, "w") as history_out:
                     history[error.class_name][error.new_key_name] = error.new_key
                     dump(history, history_out)
+                return
             except Exception as e:
                 LOGGER.exception("Adding new key Failed, stopping,%s" % e)
                 raise e
@@ -217,6 +220,7 @@ class Executor:
                 with open(error.history_path, "w") as history_out:
                     history[error.class_name].pop(error.old_key_name)
                     dump(history, history_out)
+                return
             except Exception as e:
                 LOGGER.exception(
                     "Removing old key from history Failed, stopping,%s" % e
@@ -230,6 +234,7 @@ class Executor:
                 with open(error.history_path, "w") as history_out:
                     history.pop(error.old_key)
                     dump(history, history_out)
+                return
             except Exception as e:
                 LOGGER.exception("Purging old key from history Failed, stopping,%s" % e)
                 raise e
@@ -241,6 +246,7 @@ class Executor:
                 with open(error.history_path, "w") as history_out:
                     history[error.class_name][error.old_key_name] = error.old_key
                     dump(history, history_out)
+                return
             except Exception as e:
                 LOGGER.exception(
                     "Re adding old key from history Failed, stopping,%s" % e

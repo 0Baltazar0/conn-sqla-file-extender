@@ -1,5 +1,5 @@
 import ast
-from ast_comments import parse, dump
+from ast_comments import parse, unparse
 
 
 def is_property(fun: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
@@ -27,7 +27,7 @@ def as_text_replace_content(
         new_var (str): The string of the new_variable
         _class (ast.ClassDef): The class containing the file key
     """
-    as_text = dump(_obj)
+    as_text = unparse(_obj)
 
     as_text.replace(old_var, new_var)
     as_ast: ast.Module = parse(as_text)  # type: ignore
@@ -164,7 +164,7 @@ def purge_attribute(attribute_name: str, _class: ast.ClassDef) -> None:
             for atr in _class.body
             if isinstance(atr, ast.AnnAssign)
             and isinstance(atr.target, ast.Name)
-            and atr.target == attribute_name
+            and atr.target.id == attribute_name
         ),
         None,
     )
@@ -231,7 +231,7 @@ def switch_attributes(
             for atr in _class.body
             if isinstance(atr, ast.AnnAssign)
             and isinstance(atr.target, ast.Name)
-            and atr.target == attribute_name
+            and atr.target.id == attribute_name
         ),
         None,
     )
@@ -254,7 +254,7 @@ def turn_attribute_into_property(
             for atr in _class.body
             if isinstance(atr, ast.AnnAssign)
             and isinstance(atr.target, ast.Name)
-            and atr.target == attribute_name
+            and atr.target.id == attribute_name
         ),
         None,
     )
@@ -276,7 +276,34 @@ def get_attribute(attribute_name: str, _class: ast.ClassDef) -> ast.AnnAssign | 
             for atr in _class.body
             if isinstance(atr, ast.AnnAssign)
             and isinstance(atr.target, ast.Name)
-            and atr.target == attribute_name
+            and atr.target.id == attribute_name
+        ),
+        None,
+    )
+
+
+def get_class(class_name: str, module: ast.AST | ast.Module) -> ast.ClassDef | None:
+    _module: ast.Module = module  # type: ignore
+    return next(
+        (
+            atr
+            for atr in _module.body
+            if isinstance(atr, ast.ClassDef) and atr.name == class_name
+        ),
+        None,
+    )
+
+
+def get_function(
+    function_name: str,
+    module: ast.AST | ast.Module | ast.ClassDef | ast.FunctionDef,
+) -> ast.FunctionDef | None:
+    _module: ast.Module = module  # type: ignore
+    return next(
+        (
+            atr
+            for atr in _module.body
+            if isinstance(atr, ast.FunctionDef) and atr.name == function_name
         ),
         None,
     )

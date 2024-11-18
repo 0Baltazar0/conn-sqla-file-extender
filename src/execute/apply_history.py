@@ -7,7 +7,7 @@ from logger import LOGGER
 from settings import SETTINGS
 
 from types_source import FileFields
-from ast_comments import parse, dump
+from ast_comments import parse, unparse
 
 
 def apply_history(
@@ -35,7 +35,7 @@ def apply_history(
             apply_starlette(key, key_name, _class)
 
     try:
-        textified = dump(module)
+        textified = unparse(module)
         with open(target_file, "w") as out_file:
             out_file.write(textified)
     except Exception as e:

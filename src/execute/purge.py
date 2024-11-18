@@ -8,7 +8,7 @@ from naming import (
     werkzeug_get_name,
 )
 from types_source import FileFields
-from ast_comments import parse, dump
+from ast_comments import parse, unparse
 
 from utils.ast_tools import purge_attribute, purge_property
 
@@ -71,7 +71,7 @@ def purge(
         purge_file(old_key_name, old_key, _class)
         purge_werkzeug(old_key_name, _class)
         purge_starlette(old_key_name, _class)
-        textified = dump(module)
+        textified = unparse(module)
         with open(file_name, "w") as out_file:
             out_file.write(textified)
     except Exception as e:
