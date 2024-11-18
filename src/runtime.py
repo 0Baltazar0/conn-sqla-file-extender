@@ -1,7 +1,7 @@
 import importlib.util
 from importlib.machinery import ModuleSpec
 from types import ModuleType
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal
 
 from sqlalchemy import inspect
 from yaml import Loader, load
@@ -36,23 +36,19 @@ class AbortException(Exception):
     pass
 
 
-class RenameData(TypedDict):
-    old_key_name: str
-    new_key_name: str
-    old_key: FileFields
-    new_key: FileFields
-
-
-BINARY_FIELDS = ["LargeBinary", "BINARY", "BLOB"]
+BINARY_FIELDS = [f.upper() for f in ["LargeBinary", "BINARY", "BLOB"]]
 
 STRING_FIELDS = [
-    "String",
-    "Text",
-    "NCHAR",
-    "NVARCHAR",
-    "VARCHAR",
-    "Unicode",
-    "UnicodeText",
+    f.upper()
+    for f in [
+        "String",
+        "Text",
+        "NCHAR",
+        "NVARCHAR",
+        "VARCHAR",
+        "Unicode",
+        "UnicodeText",
+    ]
 ]
 
 
@@ -132,7 +128,6 @@ class Runtime:
             for c in self.keys
             if str(c.type.__repr__()).split("(")[0].upper() in STRING_FIELDS
         ]
-
         if not possible_keys:
             raise AbortException("No keys available for selection.")
 
@@ -165,32 +160,39 @@ class Runtime:
         return {"file_name_field_name": selected_key}
 
     def resolve_new_mime_dynamic_add(self, new_key_name: str) -> FileFields:
-        new_key_name = input(
+        mime_col_name = input(
             f"Create a new column to hold mime type for the key '{new_key_name}'.Press enter to use default [{new_key_name}_mime_col:String]. Press x to abort."
         )
 
-        if new_key_name.lower() == "x":
+        if mime_col_name.lower() == "x":
             raise AbortException("New mime type key creating aborted.")
 
-        new_key_name = new_key_name if new_key_name else f"{new_key_name}_mime_col"
-
-        return {"mime_type_field_name": new_key_name}
+        new_key_name_final = (
+            mime_col_name if mime_col_name else f"{new_key_name}_mime_col"
+        )
+        print(mime_col_name)
+        return {"mime_type_field_name": new_key_name_final}
 
     def resolve_new_file_name_dynamic_add(self, new_key_name: str) -> FileFields:
-        new_key_name = input(
+        new_file_name = input(
             f"Create a new column to hold file name for the key '{new_key_name}'.Press enter to use default [{new_key_name}_file_name_col:String]. Press x to abort."
         )
 
-        if new_key_name.lower() == "x":
+        if new_file_name.lower() == "x":
             raise AbortException("New file name key creating aborted.")
 
-        new_key_name = new_key_name if new_key_name else f"{new_key_name}_file_name_col"
+        new_file_name = (
+            new_file_name if new_file_name else f"{new_key_name}_file_name_col"
+        )
 
-        return {"file_name_field_name": new_key_name}
+        return {"file_name_field_name": new_file_name}
 
     def resolve_new_mime_dynamic(self, new_key_name: str) -> FileFields:
-        run_selector = must_valid_input(
-            f"Do you want to select an existing database field for '{new_key_name}'?"
+        run_selector = (
+            must_valid_input(
+                f"Do you want to select an existing database field for '{new_key_name}'?"
+            ).lower()
+            == "y"
         )
 
         if run_selector:
@@ -199,8 +201,11 @@ class Runtime:
         return self.resolve_new_mime_dynamic_add(new_key_name)
 
     def resolve_new_file_name_dynamic(self, new_key_name: str) -> FileFields:
-        run_selector = must_valid_input(
-            f"Do you want to select an existing database field as file name for '{new_key_name}'?"
+        run_selector = (
+            must_valid_input(
+                f"Do you want to select an existing database field as file name for '{new_key_name}'?"
+            ).lower()
+            == "y"
         )
 
         if run_selector:
@@ -223,7 +228,7 @@ class Runtime:
         if new_mime_select == "static":
             return self.resolve_new_mime_static(new_key_name)
 
-        if new_key_name == "dynamic":
+        if new_mime_select == "dynamic":
             return self.resolve_new_mime_dynamic(new_key_name)
 
         raise Exception(
@@ -245,7 +250,7 @@ class Runtime:
         if new_file_name_select == "static":
             return self.resolve_new_file_name_static(new_key_name)
 
-        if new_key_name == "dynamic":
+        if new_file_name_select == "dynamic":
             return self.resolve_new_file_name_dynamic(new_key_name)
 
         raise Exception(
@@ -330,13 +335,16 @@ class Runtime:
         self, new_key_name: str, old_key_name: str, old_key: FileFields
     ) -> None:
         new_key: FileFields = {}
-
+        keep_unhandled = False
         if old_key.get("unhandled"):
-            keep_unhandled = must_valid_input(
-                "The old key is set as unhandled. Do you want to keep it unhandled?"
+            keep_unhandled = (
+                must_valid_input(
+                    "The old key is set as unhandled. Do you want to keep it unhandled?"
+                ).lower()
+                == "y"
             )
-            if keep_unhandled:
-                new_key = {"unhandled": True}
+        if keep_unhandled:
+            new_key = {"unhandled": True}
         else:
             new_key.update(self.resolve_rename_mime(new_key_name, old_key))
             new_key.update(self.resolve_rename_file_name(new_key_name, old_key))
@@ -353,19 +361,19 @@ class Runtime:
 
     def resolve_rename(self, key_name: str) -> None:
         missing_keys = [k for k in self.history if k not in self.file_keys]
-
-        missing_key_question = [
-            f"Select which key is '{key_name}' renamed from. Press x to abort"
-        ] + [f"{k}, [{i}]" for k, i in zip(missing_keys, range(len(missing_keys)))]
-
-        which_key = must_valid_input(
-            "\n".join(missing_key_question),
-            ["x"] + [str(i) for i in range(len(missing_keys))],
-        ).lower()
-        if which_key == "x":
+        if not missing_keys:
+            raise UnexpectedCodeSegment(
+                "Rename started, but no keys found, %s" % missing_keys
+            )
+        which_key = must_valid_from_list(
+            f"Select which key is '{key_name}' renamed from. Press x to abort",
+            "%s",
+            missing_keys,
+        )
+        if which_key.lower() == "x":
             raise AbortException("Rename was aborted.")
 
-        rename_source_name = missing_keys[int(which_key)]
+        rename_source_name = which_key
 
         self.resolve_rename_build_new_key(
             key_name, rename_source_name, self.history[rename_source_name]
@@ -447,6 +455,7 @@ class Runtime:
     def has_missing_keys(self) -> Literal[False]:
         missing_key = next((k for k in self.history if k not in self.file_keys), None)
         if missing_key:
+            self.resolve_missing_key(missing_key, self.history[missing_key])
             raise UnexpectedCodeSegment("missing-key-no-reaction")
         return False
 

@@ -84,17 +84,17 @@ class RemoveHistoryKeyAsIsAction(Exception):
     file_name: str
     class_name: str
     history_path: str
-    old_key: str
+    old_key_name: str
 
     def __init__(
         self,
         file_name: str,
-        old_key: str,
+        old_key_name: str,
         class_name: str,
         history_path: str,
         *args: object,
     ) -> None:
-        self.old_key = old_key
+        self.old_key_name = old_key_name
         self.file_name = file_name
         self.class_name = class_name
         self.history_path = history_path
@@ -215,7 +215,7 @@ class Executor:
         elif isinstance(error, RemoveHistoryKeyAsIsAction):
             try:
                 with open(error.history_path, "w") as history_out:
-                    history.pop(error.old_key)
+                    history[error.class_name].pop(error.old_key_name)
                     dump(history, history_out)
             except Exception as e:
                 LOGGER.exception(
