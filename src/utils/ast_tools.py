@@ -1,5 +1,23 @@
 import ast
+from typing import TypeAlias
 from ast_comments import parse, unparse
+
+WalkableClasses: TypeAlias = (
+    ast.Module
+    | ast.FunctionDef
+    | ast.AsyncFunctionDef
+    | ast.ClassDef
+    | ast.For
+    | ast.AsyncFor
+    | ast.While
+    | ast.If
+    | ast.With
+    | ast.AsyncWith
+    | ast.Try
+    | ast.TryStar
+    | ast.ExceptHandler
+    | ast.match_case
+)
 
 
 def is_property(fun: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
@@ -17,7 +35,7 @@ def is_property(fun: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
 def as_text_replace_content(
     old_var: str,
     new_var: str,
-    _obj: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef,
+    _obj: WalkableClasses,
 ) -> None:
     """Simple replace in a stringified code segment
         This does not manage any similarly named variables, avoid using those in the class
@@ -157,7 +175,7 @@ def turn_property_to_attribute(
     return
 
 
-def purge_attribute(attribute_name: str, _class: ast.ClassDef) -> None:
+def purge_attribute(attribute_name: str, _class: WalkableClasses) -> None:
     attribute = next(
         (
             atr
@@ -205,7 +223,7 @@ def add_properties_if_not_exist(
 def add_attribute_if_not_exists(
     attribute_name: str,
     attribute_: ast.AnnAssign,
-    _class: ast.ClassDef,
+    _class: WalkableClasses,
     preferred_index: int = 0,
 ) -> None:
     has_attr = get_attribute(attribute_name, _class)
@@ -223,7 +241,7 @@ def get_attribute_index(attribute_name: str, _class: ast.ClassDef) -> int | None
 
 
 def switch_attributes(
-    attribute_name: str, attribute_: ast.AnnAssign, _class: ast.ClassDef
+    attribute_name: str, attribute_: ast.AnnAssign, _class: WalkableClasses
 ) -> None:
     attribute = next(
         (
@@ -246,7 +264,7 @@ def turn_attribute_into_property(
     attribute_name: str,
     getter: ast.FunctionDef | ast.AsyncFunctionDef | None,
     setter: ast.AsyncFunctionDef | ast.FunctionDef | None,
-    _class: ast.ClassDef,
+    _class: WalkableClasses,
 ) -> None:
     attribute = next(
         (
@@ -269,7 +287,7 @@ def turn_attribute_into_property(
         _class.body.remove(attribute)
 
 
-def get_attribute(attribute_name: str, _class: ast.ClassDef) -> ast.AnnAssign | None:
+def get_attribute(attribute_name: str, _class: WalkableClasses) -> ast.AnnAssign | None:
     return next(
         (
             atr
@@ -282,12 +300,31 @@ def get_attribute(attribute_name: str, _class: ast.ClassDef) -> ast.AnnAssign | 
     )
 
 
-def get_class(class_name: str, module: ast.AST | ast.Module) -> ast.ClassDef | None:
-    _module: ast.Module = module  # type: ignore
+def get_assign(
+    assign_name: str, _class: WalkableClasses, single_target=False
+) -> ast.Assign | None:
     return next(
         (
             atr
-            for atr in _module.body
+            for atr in _class.body
+            if isinstance(atr, ast.Assign)
+            and any(
+                (
+                    isinstance(target, ast.Name) and target.id == assign_name
+                    for target in atr.targets
+                )
+            )
+            and (single_target is False or len(atr.targets) == 1)
+        ),
+        None,
+    )
+
+
+def get_class(class_name: str, module: WalkableClasses) -> ast.ClassDef | None:
+    return next(
+        (
+            atr
+            for atr in module.body
             if isinstance(atr, ast.ClassDef) and atr.name == class_name
         ),
         None,
@@ -296,7 +333,7 @@ def get_class(class_name: str, module: ast.AST | ast.Module) -> ast.ClassDef | N
 
 def get_function(
     function_name: str,
-    module: ast.AST | ast.Module | ast.ClassDef | ast.FunctionDef,
+    module: WalkableClasses,
 ) -> ast.FunctionDef | None:
     _module: ast.Module = module  # type: ignore
     return next(
@@ -307,3 +344,14 @@ def get_function(
         ),
         None,
     )
+
+
+def get_ann_or_assign(
+    value_name: str, module: WalkableClasses, single_target: bool = False
+) -> ast.AnnAssign | ast.Assign | None:
+    as_annassign = get_attribute(value_name, module)
+    if as_annassign:
+        return as_annassign
+
+    as_assign = get_assign(value_name, module, single_target)
+    return as_assign
