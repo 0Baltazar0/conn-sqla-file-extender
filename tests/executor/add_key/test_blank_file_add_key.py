@@ -1,3 +1,4 @@
+import ast
 import os
 import sys
 from tempfile import NamedTemporaryFile
@@ -78,7 +79,7 @@ class TestBlankFileHistory(unittest.TestCase):
                         )
                     )
                     with open(file_source.name) as edited_file_source:
-                        edited_ast = ast_parse(edited_file_source.read())
+                        edited_ast: ast.Module = ast_parse(edited_file_source.read())  # type: ignore
                         with open(history_source.name) as edited_history:
                             edited_history = load(edited_history, Loader)
                             self.assertEqual(

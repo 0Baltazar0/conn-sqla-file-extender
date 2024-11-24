@@ -1,16 +1,14 @@
 import ast
 from logger import LOGGER
-from naming import (
-    get_column_mime_key,
-    get_static_file_name_key,
-    get_static_mime_key,
-    starlette_get_name,
-    werkzeug_get_name,
-)
+
+from template.file_name.dynamic import DynamicFileName
+from template.file_name.static import StaticFileName
+from template.mime.dynamic import DynamicMimeType
+from template.mime.static import StaticMimeType
+from template.starlette.starlette import Starlette
+from template.werkzeug.werkzeug import Werkzeug
 from types_source import FileFields
 from ast_comments import parse, unparse
-
-from utils.ast_tools import purge_attribute, purge_property
 
 
 def purge_mime(old_key_name: str, old_key: FileFields, _class: ast.ClassDef) -> None:
@@ -18,12 +16,13 @@ def purge_mime(old_key_name: str, old_key: FileFields, _class: ast.ClassDef) -> 
         return
 
     if old_key.get("mime_type_fix"):
-        purge_attribute(get_static_mime_key(old_key_name), _class)
+        static_mime = StaticMimeType(old_key_name, old_key, _class)
+        static_mime.purge()
         return
 
     if old_key.get("mime_type_field_name"):
-        purge_attribute(get_static_mime_key(old_key_name), _class)
-        purge_property(get_column_mime_key(old_key_name), _class)
+        dynamic_mime = DynamicMimeType(old_key_name, old_key, _class)
+        dynamic_mime.purge()
         return
 
 
@@ -32,22 +31,22 @@ def purge_file(old_key_name: str, old_key: FileFields, _class: ast.ClassDef) -> 
         return
 
     if "file_name_fix" in old_key:
-        purge_attribute(get_static_file_name_key(old_key_name), _class)
+        static_file_name = StaticFileName(old_key_name, old_key, _class)
+        static_file_name.purge()
         return
 
     if "file_name_field_name" in old_key:
-        purge_attribute(get_static_mime_key(old_key_name), _class)
-        purge_attribute(old_key["file_name_field_name"], _class)
-        purge_property(get_column_mime_key(old_key_name), _class)
+        dynamic_file_name = DynamicFileName(old_key_name, old_key, _class)
+        dynamic_file_name.purge()
         return
 
 
 def purge_werkzeug(old_key_name: str, _class: ast.ClassDef) -> None:
-    purge_property(werkzeug_get_name(old_key_name), _class)
+    Werkzeug(old_key_name, {}, _class).purge()
 
 
 def purge_starlette(old_key_name: str, _class: ast.ClassDef) -> None:
-    purge_property(starlette_get_name(old_key_name), _class)
+    Starlette(old_key_name, {}, _class).purge()
 
 
 def purge(

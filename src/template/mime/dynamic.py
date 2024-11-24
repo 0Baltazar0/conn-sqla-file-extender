@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from naming import get_column_mime_key
 from template.exceptions import TemplateException
 from types_source import FileFields
-from utils.ast_tools import get_ann_or_assign, get_property_getter, get_property_setter
+from utils.ast_tools import (
+    as_text_replace_content,
+    get_ann_or_assign,
+    get_property_getter,
+    get_property_setter,
+)
 
 
 @dataclass
@@ -52,15 +57,13 @@ class MimeGetter:
         else:
             self._fn.name = get_column_mime_key(key_name)
 
-    def build_assign(self, _key: FileFields | None = None) -> ast.AnnAssign:
+    def build_assign(self, _key: FileFields | None = None) -> ast.Assign:
         key = _key or self.key
-        return ast.AnnAssign(
-            target=ast.Name("mime_type"),
-            annotation=ast.Name("str"),
+        return ast.Assign(
+            targets=[ast.Name("mime_type")],
             value=ast.Attribute(
                 value=ast.Name("self"), attr=key.get("mime_type_field_name", "")
             ),
-            simple=1,
         )
 
     def rename_assign(self, key: FileFields) -> None:
@@ -136,6 +139,13 @@ class MimeGetter:
         self.rename_assign(key)
         self.rename_return()
         self.rename_decorator()
+        if self._fn not in self._class.body:
+            target = get_property_setter(
+                get_column_mime_key(self.key_name), self._class
+            )
+            index = self._class.body.index(target) if target else 0
+
+            self._class.body.insert(index, self._fn)
 
     def purge(self) -> None:
         if self._fn:
@@ -193,7 +203,7 @@ class MimeSetter:
 
     def build_decorator(self, _key_name: str | None = None) -> ast.Attribute:
         key_name = _key_name or self.key_name
-        return ast.Attribute(ast.Name(key_name), attr="setter")
+        return ast.Attribute(ast.Name(get_column_mime_key(key_name)), attr="setter")
 
     def rename_decorator(self, key_name: str) -> None:
         if not self._fn:
@@ -212,7 +222,7 @@ class MimeSetter:
             self._fn.decorator_list.append(self.build_decorator(key_name))
 
         else:
-            setter.value = ast.Name(key_name)
+            setter.value = ast.Name(get_column_mime_key(key_name))
 
     def build_assign(self, _key: FileFields) -> ast.Assign:
         key = _key or self.key
@@ -268,7 +278,8 @@ class MimeSetter:
                     and MimeSetter._is_annassign(_as, key)
                 )
                 or (isinstance(_as, ast.Assign) and MimeSetter._is_assign(_as, key))
-            )
+            ),
+            None,
         )
         if not ass:
             self._fn.body.insert(0, self.build_assign(key))
@@ -305,8 +316,17 @@ class MimeSetter:
                 self._fn = self.build_function_base(key_name)
             else:
                 self._fn = has_current_name
+        self.rename_function_base(key_name)
         self.rename_assign(key)
         self.rename_decorator(key_name)
+
+        if self._fn not in self._class.body:
+            target = get_property_getter(
+                get_column_mime_key(self.key_name), self._class
+            )
+            index = (self._class.body.index(target) + 1) if target else 0
+
+            self._class.body.insert(index, self._fn)
 
     def purge(self) -> None:
         if self._fn:
@@ -327,9 +347,15 @@ class DynamicMimeType:
         self.getter.build()
         self.setter.build()
 
-    def change(self, new_key_name: str, new_key: FileFields) -> None:
-        self.getter.change(new_key_name, new_key)
-        self.setter.change(new_key_name, new_key)
+    def change(self, key_name: str, key: FileFields) -> None:
+        self.getter.change(key_name, key)
+        self.setter.change(key_name, key)
+
+        as_text_replace_content(
+            get_column_mime_key(self.key_name),
+            get_column_mime_key(key_name),
+            self._class,
+        )
 
     def purge(self) -> None:
         self.getter.purge()

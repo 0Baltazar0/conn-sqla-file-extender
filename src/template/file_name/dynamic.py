@@ -4,12 +4,17 @@ from dataclasses import dataclass
 from naming import get_column_file_name_key
 from template.exceptions import TemplateException
 from types_source import FileFields
-from utils.ast_tools import get_ann_or_assign, get_property_getter, get_property_setter
+from utils.ast_tools import (
+    as_text_replace_content,
+    get_ann_or_assign,
+    get_property_getter,
+    get_property_setter,
+)
 
 
 @dataclass
 class FileNameGetter:
-    """Manages the getter for the mime type, if the mime type is dynamic
+    """Manages the getter for the file name, if the file name is dynamic
 
         Raises:
             TemplateException: Any unexpected runtime error
@@ -54,15 +59,13 @@ class FileNameGetter:
         else:
             self._fn.name = get_column_file_name_key(key_name)
 
-    def build_assign(self, _key: FileFields | None = None) -> ast.AnnAssign:
+    def build_assign(self, _key: FileFields | None = None) -> ast.Assign:
         key = _key or self.key
-        return ast.AnnAssign(
-            target=ast.Name("file_name"),
-            annotation=ast.Name("str"),
+        return ast.Assign(
+            targets=[ast.Name("file_name")],
             value=ast.Attribute(
                 value=ast.Name("self"), attr=key.get("file_name_field_name", "")
             ),
-            simple=1,
         )
 
     def rename_assign(self, key: FileFields) -> None:
@@ -139,6 +142,14 @@ class FileNameGetter:
         self.rename_return()
         self.rename_decorator()
 
+        if self._fn not in self._class.body:
+            target = get_property_setter(
+                get_column_file_name_key(self.key_name), self._class
+            )
+            index = self._class.body.index(target) if target else 0
+
+            self._class.body.insert(index, self._fn)
+
     def purge(self) -> None:
         if self._fn:
             self._class.body.remove(self._fn)
@@ -146,7 +157,7 @@ class FileNameGetter:
 
 @dataclass
 class FileNameSetter:
-    """Manages the getter for the mime type, if the mime type is dynamic
+    """Manages the getter for the file name, if the file name is dynamic
 
         Raises:
             TemplateException: Any unexpected runtime error
@@ -197,7 +208,9 @@ class FileNameSetter:
 
     def build_decorator(self, _key_name: str | None = None) -> ast.Attribute:
         key_name = _key_name or self.key_name
-        return ast.Attribute(ast.Name(key_name), attr="setter")
+        return ast.Attribute(
+            ast.Name(get_column_file_name_key(key_name)), attr="setter"
+        )
 
     def rename_decorator(self, key_name: str) -> None:
         if not self._fn:
@@ -216,7 +229,7 @@ class FileNameSetter:
             self._fn.decorator_list.append(self.build_decorator(key_name))
 
         else:
-            setter.value = ast.Name(key_name)
+            setter.value = ast.Name(get_column_file_name_key(key_name))
 
     def build_assign(self, _key: FileFields) -> ast.Assign:
         key = _key or self.key
@@ -272,7 +285,8 @@ class FileNameSetter:
                     and FileNameSetter._is_annassign(_as, key)
                 )
                 or (isinstance(_as, ast.Assign) and FileNameSetter._is_assign(_as, key))
-            )
+            ),
+            None,
         )
         if not ass:
             self._fn.body.insert(0, self.build_assign(key))
@@ -309,8 +323,17 @@ class FileNameSetter:
                 self._fn = self.build_function_base(key_name)
             else:
                 self._fn = has_current_name
+        self.rename_function_base(key_name)
         self.rename_assign(key)
         self.rename_decorator(key_name)
+
+        if self._fn not in self._class.body:
+            target = get_property_setter(
+                get_column_file_name_key(self.key_name), self._class
+            )
+            index = self._class.body.index(target) if target else 0
+
+            self._class.body.insert(index, self._fn)
 
     def purge(self) -> None:
         if self._fn:
@@ -318,7 +341,7 @@ class FileNameSetter:
 
 
 @dataclass
-class DynamicMimeType:
+class DynamicFileName:
     key_name: str
     key: FileFields
     _class: ast.ClassDef
@@ -331,9 +354,14 @@ class DynamicMimeType:
         self.getter.build()
         self.setter.build()
 
-    def change(self, new_key_name: str, new_key: FileFields) -> None:
-        self.getter.change(new_key_name, new_key)
-        self.setter.change(new_key_name, new_key)
+    def change(self, key_name: str, key: FileFields) -> None:
+        self.getter.change(key_name, key)
+        self.setter.change(key_name, key)
+        as_text_replace_content(
+            get_column_file_name_key(self.key_name),
+            get_column_file_name_key(key_name),
+            self._class,
+        )
 
     def purge(self) -> None:
         self.getter.purge()

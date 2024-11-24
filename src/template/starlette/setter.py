@@ -1,282 +1,337 @@
 import ast
 from dataclasses import dataclass
-from naming import get_file_variable, get_mime_variable_name, werkzeug_get_name
+from naming import (
+    get_file_variable,
+    get_mime_variable_name,
+    starlette_get_name,
+)
 from template.exceptions import TemplateException
 from templates import property_werkzeug_setter_template
 from types_source import FileFields
-from utils.ast_tools import get_attribute_index, get_property_setter
+from utils.ast_tools import (
+    get_assign,
+    get_property_getter,
+    get_property_setter,
+)
 
 
 @dataclass
 class StarletteSetterTemplate:
+    """
+    @{starlette_get_name(key_name)}.setter
+    ...
+    async def {starlette_get_name(key_name)}(#self,file:starlette.datastructures.UploadFile#)->#None#:
+        ...
+        mime_type = file.content_type
+        ...
+        file_name = file.filename
+        ...
+        data = await file.read()
+        ...
+        self.{key} = data
+        ...
+        {('self.'+mime_key+' = mime_type') if mime_key else ''}
+        ...
+        {('self.'+file_name+' = file_name') if file_name else ''}
+
+
+    """
+
     key_name: str
     key: FileFields
     _class: ast.ClassDef
     _fn: ast.FunctionDef | ast.AsyncFunctionDef | None
 
     def __post_init__(self):
-        self._fn = get_property_setter(werkzeug_get_name(self.key_name), self._class)
+        self._fn = get_property_setter(starlette_get_name(self.key_name), self._class)
 
     def find_fn(self) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
-        return get_property_setter(werkzeug_get_name(self.key_name), self._class)
+        return get_property_setter(starlette_get_name(self.key_name), self._class)
 
-    def resolve(self) -> ast.FunctionDef:
-        return property_werkzeug_setter_template(self.key_name, self.key)
+    def add_if_not_present(self, new_key_name: str | None = None) -> None:
+        if not self._fn:
+            raise TemplateException("")
+        if self._fn not in self._class.body:
+            if new_key_name:
+                has_setter = get_property_getter(
+                    starlette_get_name(new_key_name), self._class
+                )
+                if has_setter:
+                    self._class.body.insert(
+                        self._class.body.index(has_setter) + 1, self._fn
+                    )
+                    return
+            has_old_setter = get_property_getter(
+                starlette_get_name(self.key_name), self._class
+            )
+            if has_old_setter:
+                self._class.body.insert(
+                    self._class.body.index(has_old_setter) + 1, self._fn
+                )
+                return
+            else:
+                self._class.body.insert(0, self._fn)
 
     def build_decorator(self, _key_name: str | None = None) -> ast.Attribute:
+        "@{starlette_get_name(key_name)}.setter"
         key_name = _key_name or self.key_name
-
-        return ast.Attribute(value=ast.Name(id=key_name), attr="setter")
+        return ast.Attribute(ast.Name(starlette_get_name(key_name)), "setter")
 
     def rename_decorator(self, new_key_name: str) -> None:
-        _fn = self._fn
-        if not _fn:
-            raise TemplateException()
+        "@{starlette_get_name(key_name)}.setter"
+        if not self._fn:
+            raise TemplateException("")
 
-        attribute = next(
+        dec = next(
             (
-                decor
-                for decor in _fn.decorator_list
-                if isinstance(decor, ast.Attribute)
-                and isinstance(decor.value, ast.Name)
-                and decor.attr == "setter"
-                and decor.value.id == self.key_name
+                dec
+                for dec in self._fn.decorator_list
+                if isinstance(dec, ast.Attribute)
+                and isinstance(dec.value, ast.Name)
+                and dec.value.id == starlette_get_name(new_key_name)
+                and dec.attr == "setter"
             ),
             None,
         )
+        if not dec:
+            self._fn.decorator_list.append(self.build_decorator(new_key_name))
 
-        if attribute:
-            attribute.value = ast.Name(id=new_key_name)
         else:
-            _fn.decorator_list.append(self.build_decorator(new_key_name))
+            if self._fn.decorator_list.index(dec) != len(self._fn.decorator_list) - 1:
+                raise TemplateException("")
+            dec.value = ast.Name(starlette_get_name(new_key_name))
 
     def build_function_base(self, _key_name: str | None = None) -> ast.AsyncFunctionDef:
+        "async def {starlette_get_name(key_name)}(#self,file:starlette.datastructures.UploadFile#)->#None#:"
         key_name = _key_name or self.key_name
 
-        _fn = ast.parse(
-            f"async def {werkzeug_get_name(key_name)}(self,file:werkzeug.FileStorage)->None:\n\tpass"
-        ).body[0]
-
-        if not isinstance(_fn, ast.AsyncFunctionDef):
-            raise TemplateException()
-
-        _fn.body = []
-        return _fn
+        return ast.AsyncFunctionDef(
+            starlette_get_name(key_name),
+            ast.arguments(
+                [],
+                [
+                    ast.arg("self"),
+                    ast.arg(
+                        "file",
+                        ast.Attribute(
+                            ast.Attribute(ast.Name("starlette"), "datastructures"),
+                            "UploadFile",
+                        ),
+                    ),
+                ],
+                None,
+                [],
+                [],
+                None,
+                [],
+            ),
+            [],
+            [],
+            ast.Constant(None),
+        )
 
     def rename_function_base(self, new_key_name: str) -> None:
-        _fn = self._fn
-        if not _fn:
-            raise TemplateException()
+        "async def {starlette_get_name(key_name)}(#self,file:starlette.datastructures.UploadFile#)->#None#:"
+        if not self._fn:
+            raise TemplateException("")
 
-        _fn.name = new_key_name
+        self._fn.name = starlette_get_name(new_key_name)
 
-    @staticmethod
-    def is_file_read_call(expr: ast.expr) -> bool:
-        if not isinstance(expr, ast.Call):
-            return False
-
-        return (
-            isinstance(expr.func, ast.Attribute)
-            and isinstance(expr.func.value, ast.Name)
-            and expr.func.value.id == "file"
-            and expr.func.attr == "read"
-        )
-
-    def build_data_assign(self, _key_name: str | None = None) -> ast.Assign:
-        key_name = _key_name or self.key_name
+    def build_static_mime_definition(self) -> ast.Assign:
+        "mime_type = file.content_type"
         return ast.Assign(
-            targets=[ast.Attribute(value=ast.Name(id=key_name), attr="self")],
-            value=ast.Call(
-                args=[],
-                keywords=[],
-                func=ast.Attribute(value=ast.Name(id="file"), attr="read"),
-            ),
+            [ast.Name("mime_type")], ast.Attribute(ast.Name("file"), "content_type")
         )
 
-    def rename_data_assign(self, new_key_name: str) -> None:
-        _fn = self._fn
-        if not _fn:
-            raise TemplateException()
+    def rename_static_mime_definition(self) -> None:
+        "mime_type = file.content_type"
+        if not self._fn:
+            raise TemplateException("")
 
-        assign = next(
+        ass = get_assign("mime_type", self._fn, True)
+        if not ass:
+            self._fn.body.insert(0, self.build_static_mime_definition())
+        else:
+            return
+
+    def build_static_file_name_definition(self) -> ast.Assign:
+        "file_name = file.filename"
+        return ast.Assign(
+            [ast.Name("file_name")], ast.Attribute(ast.Name("file"), "filename")
+        )
+
+    def rename_static_file_name_definition(self) -> None:
+        "file_name = file.filename"
+        if not self._fn:
+            raise TemplateException("")
+
+        ass = get_assign("file_name", self._fn, True)
+        if not ass:
+            self._fn.body.insert(0, self.build_static_file_name_definition())
+        else:
+            return
+
+    def build_data_assign(self) -> ast.Assign:
+        "data = await file.read()"
+        return ast.Assign(
+            [ast.Name("data")],
+            ast.Await(ast.Call(ast.Attribute(ast.Name("file"), "read"), [], [])),
+        )
+
+    def rename_data_assign(self) -> None:
+        "data = await file.read()"
+        if not self._fn:
+            raise TemplateException("")
+        ass = get_assign("data", self._fn, True)
+
+        if not ass:
+            self._fn.body.insert(0, self.build_data_assign())
+        else:
+            return
+
+    def build_key_name_assign(self, _key_name: str) -> ast.Assign:
+        "self.{key_name} = data"
+        key_name = _key_name or self.key_name
+        return ast.Assign([ast.Attribute(ast.Name("self"), key_name)], ast.Name("data"))
+
+    def rename_key_name_assign(self, new_key_name: str) -> None:
+        "self.{key_name} = data"
+        if not self._fn:
+            raise TemplateException("")
+        ass = next(
             (
-                ass
-                for ass in self._class.body
-                if isinstance(ass, ast.Assign)
-                and isinstance(ass.targets[0], ast.Attribute)
-                and ass.targets[0].attr == self.key_name
-                and isinstance(ass.targets[0].value, ast.Name)
-                and ass.targets[0].value.id == "self"
-                and StarletteSetterTemplate.is_file_read_call(ass.value)
+                _ass
+                for _ass in self._fn.body
+                if isinstance(_ass, ast.Assign)
+                and isinstance(_ass.targets[0], ast.Attribute)
+                and isinstance(_ass.targets[0].value, ast.Name)
+                and _ass.targets[0].value.id == "self"
+                and _ass.targets[0].attr in [new_key_name, self.key_name]
+                and isinstance(_ass.value, ast.Name)
+                and _ass.value.id == "data"
             ),
             None,
         )
-
-        if assign:
-            attr = assign.targets[0]
-            if not isinstance(attr, ast.Attribute):
-                raise TemplateException()
-
-            attr.attr = new_key_name
-
+        if ass:
+            ass.targets[0] = ast.Attribute(ast.Name("self"), new_key_name)
         else:
-            _fn.body.insert(0, self.build_data_assign(new_key_name))
+            self._fn.body.append(self.build_key_name_assign(new_key_name))
 
-    @staticmethod
-    def is_file_mimetype(expr: ast.expr) -> bool:
-        if not isinstance(expr, ast.Attribute):
-            return False
-
-        if not isinstance(expr.value, ast.Name):
-            return False
-
-        if not expr.value.id == "content_type":
-            return False
-
-        if not expr.attr == "file":
-            return False
-        return True
-
-    @staticmethod
-    def is_file_file_name(expr: ast.expr) -> bool:
-        if not isinstance(expr, ast.Attribute):
-            return False
-
-        if not isinstance(expr.value, ast.Name):
-            return False
-
-        if not expr.value.id == "filename":
-            return False
-
-        if not expr.attr == "file":
-            return False
-        return True
-
-    def build_mime_assign(
-        self, _key: FileFields | None = None, _key_name: str | None = None
+    def build_optional_mime(
+        self, _key_name: str | None, _key: FileFields | None
     ) -> ast.Assign | None:
-        key = _key or self.key
+        "{('self.'+mime_key+' = mime_type') if mime_key else ''}"
         key_name = _key_name or self.key_name
+        key = _key or self.key
         mime_key = get_mime_variable_name(key, key_name)
-        if not mime_key or not key.get("mime_type_field_name"):
+        if not mime_key:
             return None
         return ast.Assign(
-            targets=[ast.Attribute(value=ast.Name(id=mime_key), attr="self")],
-            value=ast.Attribute(value=ast.Name(id="mimetype"), attr="file"),
+            [ast.Attribute(ast.Name("self"), mime_key)], ast.Name("mime_type")
         )
 
-    def rename_mime_assign(self, new_key_name: str, key: FileFields) -> None:
-        _fn = self._fn
-        if not _fn:
-            raise TemplateException()
-
-        mime_ass = next(
+    def rename_optional_mime(self, new_key_name: str, new_key: FileFields) -> None:
+        "{('self.'+mime_key+' = mime_type') if mime_key else ''}"
+        if not self._fn:
+            raise TemplateException("")
+        ass = next(
             (
-                ass
-                for ass in self._class.body
-                if isinstance(ass, ast.Assign)
-                and isinstance(ass.targets[0], ast.Attribute)
-                and ass.targets[0].attr
-                == get_mime_variable_name(self.key, self.key_name)
-                and isinstance(ass.targets[0].value, ast.Name)
-                and ass.targets[0].value.id == "self"
-                and StarletteSetterTemplate.is_file_mimetype(ass.value)
+                _ass
+                for _ass in self._fn.body
+                if isinstance(_ass, ast.Assign)
+                and isinstance(_ass.targets[0], ast.Attribute)
+                and isinstance(_ass.targets[0].value, ast.Name)
+                and _ass.targets[0].value.id == "self"
+                and _ass.targets[0].attr
+                in [
+                    get_mime_variable_name(new_key, new_key_name),
+                    get_mime_variable_name(self.key, new_key_name),
+                    get_mime_variable_name(new_key, self.key_name),
+                    get_mime_variable_name(self.key, self.key_name),
+                ]
             ),
             None,
         )
-
-        mime_key = get_mime_variable_name(key, new_key_name)
-        if mime_ass:
-            if key.get("mime_type_field_name") and mime_key:
-                attr = mime_ass.targets[0]
-                if not isinstance(attr, ast.Attribute):
-                    raise TemplateException()
-
-                attr.attr = mime_key
-
-                return None
+        mime_key = get_mime_variable_name(new_key, new_key_name)
+        if ass:
+            if not mime_key:
+                self._fn.body.remove(ass)
             else:
-                _fn.body.remove(mime_ass)
+                ass.targets[0] = ast.Attribute(ast.Name("self"), mime_key)
         else:
-            mime = self.build_mime_assign(key, new_key_name)
-            if mime:
-                _fn.body.insert(0, mime)
+            should = self.build_optional_mime(new_key_name, new_key)
+            if should:
+                self._fn.body.append(should)
 
-    def build_file_name_assign(
-        self, _key: FileFields | None = None, _key_name: str | None = None
+    def build_optional_file_name(
+        self, _key_name: str | None, _key: FileFields | None
     ) -> ast.Assign | None:
-        key = _key or self.key
+        "{('self.'+file_name+' = file_name') if file_name else ''}"
         key_name = _key_name or self.key_name
-        file_ass = get_file_variable(key, key_name)
-        if not file_ass or not key.get("file_name_field_name"):
+        key = _key or self.key
+        file_name_key = get_file_variable(key, key_name)
+        if not file_name_key:
             return None
         return ast.Assign(
-            targets=[ast.Attribute(value=ast.Name(id=file_ass), attr="self")],
-            value=ast.Attribute(value=ast.Name(id="mimetype"), attr="file"),
+            [ast.Attribute(ast.Name("self"), file_name_key)], ast.Name("file_name")
         )
 
-    def rename_file_name_assign(self, new_key_name: str, key: FileFields) -> None:
-        _fn = self._fn
-        if not _fn:
-            raise TemplateException()
-
-        file_ass = next(
+    def rename_optional_file_name(self, new_key_name: str, new_key: FileFields) -> None:
+        "{('self.'+file_name+' = file_name') if file_name else ''}"
+        if not self._fn:
+            raise TemplateException("")
+        ass = next(
             (
-                ass
-                for ass in self._class.body
-                if isinstance(ass, ast.Assign)
-                and isinstance(ass.targets[0], ast.Attribute)
-                and ass.targets[0].attr
-                == get_mime_variable_name(self.key, self.key_name)
-                and isinstance(ass.targets[0].value, ast.Name)
-                and ass.targets[0].value.id == "self"
-                and StarletteSetterTemplate.is_file_file_name(ass.value)
+                _ass
+                for _ass in self._fn.body
+                if isinstance(_ass, ast.Assign)
+                and isinstance(_ass.targets[0], ast.Attribute)
+                and isinstance(_ass.targets[0].value, ast.Name)
+                and _ass.targets[0].value.id == "self"
+                and _ass.targets[0].attr
+                in [
+                    get_file_variable(new_key, new_key_name),
+                    get_file_variable(self.key, new_key_name),
+                    get_file_variable(new_key, self.key_name),
+                    get_file_variable(self.key, self.key_name),
+                ]
             ),
             None,
         )
-
-        file_name = get_file_variable(key, new_key_name)
-        if file_ass:
-            if key.get("file_name_field_name") and file_name:
-                attr = file_ass.targets[0]
-                if not isinstance(attr, ast.Attribute):
-                    raise TemplateException()
-
-                attr.attr = file_name
-
-                return None
+        file_name_key = get_file_variable(new_key, new_key_name)
+        if ass:
+            if not file_name_key:
+                self._fn.body.remove(ass)
             else:
-                _fn.body.remove(file_ass)
+                ass.targets[0] = ast.Attribute(ast.Name("self"), file_name_key)
         else:
-            mime = self.build_mime_assign(key, new_key_name)
-            if mime:
-                _fn.body.insert(0, mime)
+            should = self.build_optional_file_name(new_key_name, new_key)
+            if should:
+                self._fn.body.append(should)
 
     def build(self) -> None:
         exists = self.find_fn()
         if exists:
             return
 
-        key = get_attribute_index(self.key_name, self._class) or 0
-
         fun = self.build_function_base()
         self._fn = fun
 
-        self.build_data_assign()
-        self.build_decorator()
-        self.build_file_name_assign()
-        self.build_mime_assign()
-
-        self._class.body.insert(key, fun)
+        self.change(self.key_name, self.key)
 
     def change(self, new_key_name: str, new_key: FileFields) -> None:
         if not self._fn:
             self._fn = self.build_function_base(new_key_name)
-        self.rename_function_base(new_key_name)
-        self.rename_data_assign(new_key_name)
         self.rename_decorator(new_key_name)
-        self.build_file_name_assign(new_key, new_key_name)
-        self.rename_mime_assign(new_key_name, new_key)
+        self.rename_function_base(new_key_name)
+        self.rename_static_mime_definition()
+        self.rename_static_file_name_definition()
+        self.rename_data_assign()
+        self.rename_key_name_assign(new_key_name)
+        self.rename_optional_mime(new_key_name, new_key)
+        self.rename_optional_file_name(new_key_name, new_key)
+
+        self.add_if_not_present(new_key_name)
 
     def purge(self) -> None:
         if self._fn:

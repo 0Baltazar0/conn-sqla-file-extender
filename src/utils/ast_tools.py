@@ -1,4 +1,5 @@
 import ast
+import types
 from typing import TypeAlias
 from ast_comments import parse, unparse
 
@@ -45,11 +46,10 @@ def as_text_replace_content(
         new_var (str): The string of the new_variable
         _class (ast.ClassDef): The class containing the file key
     """
-    as_text = unparse(_obj)
-
+    as_text = unparse(ast.fix_missing_locations(_obj))
     as_text.replace(old_var, new_var)
     as_ast: ast.Module = parse(as_text)  # type: ignore
-    _obj.body = as_ast.body
+    _obj.body = as_ast.body[0].body  # type: ignore
     return
 
 
@@ -355,3 +355,33 @@ def get_ann_or_assign(
 
     as_assign = get_assign(value_name, module, single_target)
     return as_assign
+
+
+def pr(obj: object, indent=0, max_indent=5) -> None:
+    if isinstance(obj, types.BuiltinFunctionType):
+        return
+    if indent > max_indent:
+        return
+    indentation = "\t" * indent
+    print(f"{indentation}{obj}")
+    for item in dir(obj):
+        if isinstance(getattr(obj, item), types.BuiltinFunctionType):
+            continue
+        if (
+            item.startswith("_")
+            or item == "parent"
+            or "line" in item
+            or "col" in item
+            or item in ["simple", "ctx"]
+        ):
+            continue
+        if isinstance(getattr(obj, item), list):
+            print(f"{indentation}{item:}")
+            for index in range(len(getattr(obj, item))):
+                print(f"{indentation}item:{index}")
+                pr(getattr(obj, item)[index], indent + 1, max_indent)
+        elif isinstance(getattr(obj, item), object):
+            print(f"{indentation}{item}:{getattr(obj,item)}")
+            pr(getattr(obj, item), indent + 1, max_indent)
+        else:
+            print(f"{indentation}{item}:{getattr(obj,item)}")
